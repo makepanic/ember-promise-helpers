@@ -1,6 +1,5 @@
 import Helper from '@ember/component/helper';
-import RSVP from 'rsvp';
-const {Promise} = RSVP;
+import { resolve } from 'rsvp';
 
 export default Helper.extend({
   /**
@@ -10,7 +9,7 @@ export default Helper.extend({
    * This is the value that gets returned synchronously as the helper's return
    * value before the promise is settled. For example `{{async promise}}` will return
    * null, before the promise is resolved or rejected.
-  */
+   */
   valueBeforeSettled: null,
 
   /**
@@ -19,18 +18,15 @@ export default Helper.extend({
    * @param params Array a list of arguments passed to the Helper.
    * @param hash Object a list of configuration options passed to the helper.
    * This parameter is currently unused by Await.
-  */
+   */
   compute([maybePromise]) {
     if (!maybePromise || typeof maybePromise.then !== 'function') {
       return maybePromise;
     }
 
-    return this.ensureLatestPromise(maybePromise, (promise) => {
-      promise.then((value) => {
-        this.setValue(value, maybePromise);
-      }).catch(() => {
-        this.setValue(null, maybePromise);
-      });
+    return this.ensureLatestPromise(maybePromise, promise => {
+      promise.then(val => this.setValue(val))
+        .catch(() => this.setValue(null));
     });
   },
 
@@ -41,53 +37,19 @@ export default Helper.extend({
    * @param callback Function function to be called with a wrapped promise
    *
    * Method to set the latest promise. This gets called by `compute` (which in
-   * turn gets called by `recompute`). If the promise being passed in is the
-   * same as before, then just return the value to `compute`. Otherwise, call
+   * turn gets called by `recompute`). Always calls
    * the callback so the user can call `then`, `catch`, or `finally` on the
    * promise to update the value using `setValue` later.
-  */
+   */
   ensureLatestPromise(promise, callback) {
-    if (this._wasSettled && promise === this._promise) {
-      return this._value;
-    } else {
-      this._unsettle();
-    }
-
-    this._promise = promise;
-
-    callback.call(this, Promise.resolve(promise));
-    return this.get('valueBeforeSettled');
-  },
-
-  /**
-   * @method _settle
-   * @private
-  */
-  _settle(promise) {
-    if (this.allowUpdates(promise)) {
-      this._wasSettled = true;
-      this.recompute();
-    }
-  },
-
-  /**
-   * @private
-   * @method _unsettle
-   *
-   * Resets the promise to null and calls recompute. Designed to be used
-   * when a new promise is passed to the `compute` method. This would happen
-   * when the value changes in Handlebars.
-  */
-  _unsettle() {
-    this._wasSettled = false;
-    this._promise = null;
+    callback.call(this, resolve(promise));
+    return this.valueBeforeSettled;
   },
 
   /**
    * @method setValue
    * @public
    * @param value Any the value to return to the helper
-   * @param promise Promise the promise the `setValue` call is coming from.
    *
    * `setValue` is how you should set the value to be returned to the helper
    * in the app. It exists to prevent race conditions between promises.
@@ -108,7 +70,7 @@ export default Helper.extend({
    * controller, or route, when the promise resolves, it will render the value
    * of `promise1`, which is "hello".
    *
-   * If you set the avlue of `promise` to `promise2`, you would see "goodbye".
+   * If you set the value of `promise` to `promise2`, you would see "goodbye".
    *
    * But what happens if `promise1` resolves asynchronously, e.g., using `Ember.run.later`?
    *
@@ -121,15 +83,11 @@ export default Helper.extend({
    * Even though `promise2` already resolved with "goodbye", the template would
    * render "hello", which is not the intended behavior. So, `setValue` makes you pass
    * the promise so the internal book-keeping can ensure the last-set promise always wins.
-  */
-  setValue(value, promise) {
-    if (this.allowUpdates(promise)) {
-      this._value = value;
-      this._settle(promise);
+   */
+  setValue(value) {
+    if (this.get('valueBeforeSettled') !== value) {
+      this.set('valueBeforeSettled', value);
+      this.recompute();
     }
   },
-
-  allowUpdates(promise) {
-    return this._promise === promise;
-  }
 });
